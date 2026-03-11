@@ -7,4 +7,6 @@ interface IVariableDebtToken {
     function burn(address user, uint256 scaledAmount) external;
 
     function balanceOf(address user) external view returns (uint256);
+
+    function scaledBalanceOf(address user) external view returns (uint256);
 }

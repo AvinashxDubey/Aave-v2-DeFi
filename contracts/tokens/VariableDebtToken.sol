@@ -11,7 +11,7 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 contract VariableDebtToken is Initializable, IVariableDebtToken {
     using WadRayMath for uint256;
 
-    mapping(address => uint256) internal scaledDebts;
+    mapping(address => uint256) internal _scaledDebts;
     uint256 internal _totalScaledDebt;
 
     address internal _lendingPool;
@@ -52,7 +52,7 @@ contract VariableDebtToken is Initializable, IVariableDebtToken {
     function mint(address user, uint256 scaledAmount) external {
         require(msg.sender == address(_lendingPool), "ONLY_POOL_ACCESSIBLE!");
 
-        scaledDebts[user] += scaledAmount;
+        _scaledDebts[user] += scaledAmount;
         _totalScaledDebt += scaledAmount;
         // _mint(user, scaledAmount);
     }
@@ -60,19 +60,23 @@ contract VariableDebtToken is Initializable, IVariableDebtToken {
     function burn(address user, uint256 scaledAmount) external {
         require(msg.sender == address(_lendingPool), "ONLY_POOL_ACCESSIBLE!");
 
-        scaledDebts[user] -= scaledAmount;
+        _scaledDebts[user] -= scaledAmount;
         _totalScaledDebt -= scaledAmount;
         // _burn(user, scaledAmount);
     }
 
     function balanceOf(address user) public view returns (uint256) {
-        uint256 scaledDebt = scaledDebts[user];
+        uint256 scaledDebt = _scaledDebts[user];
         if (scaledDebt == 0) return 0;
 
         (, uint256 variableBorrowIndex, , , , , , , ) = ILendingPool(_lendingPool)
             .getReserves(_underlyingAsset);
 
         return scaledDebt.rayMul(variableBorrowIndex);
+    }
+
+    function scaledBalanceOf(address user) external view returns (uint256) {
+        return _scaledDebts[user];
     }
 
     function totalSupply() public view returns (uint256) {

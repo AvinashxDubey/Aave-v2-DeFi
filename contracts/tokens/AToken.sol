@@ -67,6 +67,10 @@ contract AToken is Initializable, IAToken {
         return scaledBalance.rayMul(liquidityIndex);
     }
 
+    function scaledBalanceOf(address user) external view returns (uint256) {
+        return _scaledBalances[user];
+    }
+
     function totalSupply() public view returns (uint256) {
         if (_totalScaledSupply == 0) return 0;
 
@@ -75,4 +79,5 @@ contract AToken is Initializable, IAToken {
 
         return _totalScaledSupply.rayMul(liquidityIndex);
     }
+
 }

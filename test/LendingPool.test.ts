@@ -9,33 +9,50 @@ describe("LendingPool Initialization", function () {
     const [deployer, user1] = await hre.ethers.getSigners();
 
     const MockToken = await hre.ethers.getContractFactory("MockToken");
-    const mockToken = await MockToken.deploy("Mock USDC", "mUSDC");
+    const collateralToken = await MockToken.deploy("Mock WETH", "mWETH");
+    const debtAssetToken = await MockToken.deploy("Mock USDC", "mUSDC");
 
     const LendingPool = await hre.ethers.getContractFactory("LendingPool");
     const lendingPool = await LendingPool.deploy();
 
     const AToken = await hre.ethers.getContractFactory("AToken");
-    const aToken = await AToken.deploy();
+    const collateralAToken = await AToken.deploy();
+    const debtAssetAToken = await AToken.deploy();
 
     const VariableDebtToken = await hre.ethers.getContractFactory("VariableDebtToken");
-    const debtToken = await VariableDebtToken.deploy();
+    const collateralDebtToken = await VariableDebtToken.deploy();
+    const debtAssetDebtToken = await VariableDebtToken.deploy();
 
     await lendingPool.initialize(
-      mockToken.target,
-      aToken.target,
-      debtToken.target
+      [collateralToken.target, debtAssetToken.target],
+      [collateralAToken.target, debtAssetAToken.target],
+      [collateralDebtToken.target, debtAssetDebtToken.target]
     );
 
-    await aToken.initialize(
+    await collateralAToken.initialize(
       lendingPool.target,
-      mockToken.target,
+      collateralToken.target,
+      "Aave Mock WETH",
+      "aMWETH"
+    );
+
+    await debtAssetAToken.initialize(
+      lendingPool.target,
+      debtAssetToken.target,
       "Aave Mock USDC",
       "aMUSDC"
     );
 
-    await debtToken.initialize(
+    await collateralDebtToken.initialize(
       lendingPool.target,
-      mockToken.target,
+      collateralToken.target,
+      "Variable Debt Mock WETH",
+      "vdMWETH"
+    );
+
+    await debtAssetDebtToken.initialize(
+      lendingPool.target,
+      debtAssetToken.target,
       "Variable Debt Mock USDC",
       "vdMUSDC"
     );
@@ -43,10 +60,12 @@ describe("LendingPool Initialization", function () {
     return {
       deployer,
       user1,
-      mockToken,
+      collateralToken,
+      debtAssetToken,
       lendingPool,
-      aToken,
-      debtToken
+      collateralAToken,
+      collateralDebtToken,
+      debtAssetDebtToken
     };
   }
 
@@ -54,9 +73,9 @@ describe("LendingPool Initialization", function () {
 
     it("Should initialize liquidity index correctly", async function () {
 
-      const { lendingPool, mockToken } = await loadFixture(deployFixture);
+      const { lendingPool, collateralToken } = await loadFixture(deployFixture);
 
-      const reserve = await lendingPool.reserves(mockToken.target);
+      const reserve = await lendingPool.getReserves(collateralToken.target);
 
       expect(reserve.liquidityIndex).to.equal(10n ** 27n);
 
@@ -64,9 +83,9 @@ describe("LendingPool Initialization", function () {
 
     it("Should initialize borrow index correctly", async function () {
 
-      const { lendingPool, mockToken } = await loadFixture(deployFixture);
+      const { lendingPool, collateralToken } = await loadFixture(deployFixture);
 
-      const reserve = await lendingPool.reserves(mockToken.target);
+      const reserve = await lendingPool.getReserves(collateralToken.target);
 
       expect(reserve.variableBorrowIndex).to.equal(10n ** 27n);
 
@@ -74,21 +93,21 @@ describe("LendingPool Initialization", function () {
 
     it("Should set correct aToken address", async function () {
 
-      const { lendingPool, mockToken, aToken } = await loadFixture(deployFixture);
+      const { lendingPool, collateralToken, collateralAToken } = await loadFixture(deployFixture);
 
-      const reserve = await lendingPool.reserves(mockToken.target);
+      const reserve = await lendingPool.getReserves(collateralToken.target);
 
-      expect(reserve.aTokenAddress).to.equal(aToken.target);
+      expect(reserve.aTokenAddress).to.equal(collateralAToken.target);
 
     });
 
     it("Should set correct debt token address", async function () {
 
-      const { lendingPool, mockToken, debtToken } = await loadFixture(deployFixture);
+      const { lendingPool, collateralToken, collateralDebtToken } = await loadFixture(deployFixture);
 
-      const reserve = await lendingPool.reserves(mockToken.target);
+      const reserve = await lendingPool.getReserves(collateralToken.target);
 
-      expect(reserve.variableDebtTokenAddress).to.equal(debtToken.target);
+      expect(reserve.variableDebtTokenAddress).to.equal(collateralDebtToken.target);
 
     });
 
@@ -98,17 +117,17 @@ describe("LendingPool Initialization", function () {
 
     it("Should set correct lending pool", async function () {
 
-      const { aToken, lendingPool } = await loadFixture(deployFixture);
+      const { collateralAToken, lendingPool } = await loadFixture(deployFixture);
 
-      expect(await aToken.lendingPool()).to.equal(lendingPool.target);
+      expect(await collateralAToken.lendingPool()).to.equal(lendingPool.target);
 
     });
 
     it("Should set correct underlying asset", async function () {
 
-      const { aToken, mockToken } = await loadFixture(deployFixture);
+      const { collateralAToken, collateralToken } = await loadFixture(deployFixture);
 
-      expect(await aToken.underlyingAsset()).to.equal(mockToken.target);
+      expect(await collateralAToken.underlyingAsset()).to.equal(collateralToken.target);
 
     });
 
@@ -118,17 +137,17 @@ describe("LendingPool Initialization", function () {
 
     it("Should set correct lending pool", async function () {
 
-      const { debtToken, lendingPool } = await loadFixture(deployFixture);
+      const { debtAssetDebtToken, lendingPool } = await loadFixture(deployFixture);
 
-      expect(await debtToken.lendingPool()).to.equal(lendingPool.target);
+      expect(await debtAssetDebtToken.lendingPool()).to.equal(lendingPool.target);
 
     });
 
     it("Should set correct underlying asset", async function () {
 
-      const { debtToken, mockToken } = await loadFixture(deployFixture);
+      const { debtAssetDebtToken, debtAssetToken } = await loadFixture(deployFixture);
 
-      expect(await debtToken.underlyingAsset()).to.equal(mockToken.target);
+      expect(await debtAssetDebtToken.underlyingAsset()).to.equal(debtAssetToken.target);
 
     });
 
