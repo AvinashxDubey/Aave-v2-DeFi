@@ -19,6 +19,10 @@ library DataTypes {
         uint16 liquidationThreshold;
         //the id of the reserve. Represents the position in the list of the active reserves
         uint8 id;
+        uint256 totalLiquidity;
+        uint256 totalBorrows;
+        uint256 availableLiquidity;
+        uint256 reserveFactor;
     }
 
     struct UserConfigurationMap {
