@@ -8,6 +8,7 @@ import "../interfaces/IAToken.sol";
 import "../interfaces/IVariableDebtToken.sol";
 import "../interfaces/ILendingPool.sol";
 import "../libraries/UserConfiguration.sol";
+import "./DefaultReserveInterestStrategy.sol";
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
@@ -21,6 +22,7 @@ contract LendingPool is Initializable, ILendingPool {
     mapping(address => DataTypes.UserConfigurationMap) internal usersConfig;
     address[] internal reservesList;
     address public poolAdmin;
+    DefaultReserveInterestRateStrategy public interestRateStrategy;
 
     uint256 constant LIQUIDATION_BONUS = 10500;
     uint256 constant CLOSE_FACTOR = 5000;
@@ -34,7 +36,8 @@ contract LendingPool is Initializable, ILendingPool {
     function initialize(
         address[] calldata assets,
         address[] calldata aTokens,
-        address[] calldata debtTokens
+        address[] calldata debtTokens,
+        address strategyAddresss
     ) external initializer {
         uint256 len = assets.length;
         require(len > 0, "EMPTY_RESERVES");
@@ -44,6 +47,11 @@ contract LendingPool is Initializable, ILendingPool {
         );
 
         poolAdmin = msg.sender;
+
+        interestRateStrategy = DefaultReserveInterestRateStrategy(
+            strategyAddresss
+        );
+
         for (uint256 i = 0; i < len; i++) {
             _addReserve(assets[i], aTokens[i], debtTokens[i]);
         }
@@ -92,6 +100,7 @@ contract LendingPool is Initializable, ILendingPool {
         // for precision and to avoid floating-point math.
         reserve.ltv = 7500;
         reserve.liquidationThreshold = 8000;
+        reserve.reserveFactor = 1e17; // 10%
 
         reservesList.push(asset);
     }
@@ -127,6 +136,32 @@ contract LendingPool is Initializable, ILendingPool {
             reserve.variableDebtTokenAddress,
             reserve.ltv,
             reserve.liquidationThreshold
+        );
+    }
+
+    /**
+     * @dev Returns more complete reserve state useful for monitoring UI
+     */
+    function getReserveState(
+        address asset
+    )
+        external
+        view
+        returns (
+            uint256 totalLiquidity,
+            uint256 totalBorrows,
+            uint256 availableLiquidity,
+            uint256 reserveFactor,
+            uint8 id
+        )
+    {
+        DataTypes.ReserveData storage reserve = reserves[asset];
+        return (
+            reserve.totalLiquidity,
+            reserve.totalBorrows,
+            reserve.availableLiquidity,
+            reserve.reserveFactor,
+            reserve.id
         );
     }
 
@@ -257,6 +292,45 @@ contract LendingPool is Initializable, ILendingPool {
         return hf;
     }
 
+    function _updateInterestRates(address asset) internal {
+        DataTypes.ReserveData storage reserve = reserves[asset];
+
+        uint256 totalBorrows = reserve.totalBorrows;
+        uint256 availableLiquidity = reserve.availableLiquidity;
+        uint256 totalLiquidity = totalBorrows + availableLiquidity;
+
+        if (totalLiquidity == 0) {
+            reserve.currentVariableBorrowRate = 0;
+            reserve.currentLiquidityRate = 0;
+            return;
+        }
+
+        // Borrow rate in RAY, from strategy
+        uint256 borrowRate = interestRateStrategy.calculateBorrowRate(
+            totalBorrows,
+            availableLiquidity
+        );
+
+        // Utilization in WAD
+        uint256 utilization = totalBorrows.wadDiv(totalLiquidity);
+
+        // liquidityRate = borrowRate * utilization * (1 - reserveFactor)
+        uint256 oneMinusReserveFactor = WadRayMath.WAD - reserve.reserveFactor;
+
+        // borrowRate is RAY, utilization / reserveFactor are WAD.
+        // Convert borrowRate RAY → WAD to combine, then back if you want RAY.
+        uint256 borrowRateWad = WadRayMath.rayToWad(borrowRate);
+
+        uint256 liquidityRateWad = borrowRateWad.wadMul(utilization).wadMul(
+            oneMinusReserveFactor
+        );
+
+        uint256 liquidityRateRay = WadRayMath.wadToRay(liquidityRateWad);
+
+        reserve.currentVariableBorrowRate = uint128(borrowRate);
+        reserve.currentLiquidityRate = uint128(liquidityRateRay);
+    }
+
     /**
      * @dev user deposits assets to pool, then pool mint interest bearing tokens
      *
@@ -275,12 +349,16 @@ contract LendingPool is Initializable, ILendingPool {
         reserve.updateState();
         IERC20(asset).transferFrom(msg.sender, address(this), amount);
 
-        uint256 scaledAmount = amount.rayDiv(reserve.liquidityIndex);
+        reserve.totalLiquidity += amount;
+        reserve.availableLiquidity += amount;
 
+        uint256 scaledAmount = amount.rayDiv(reserve.liquidityIndex);
         IAToken(reserve.aTokenAddress).mint(msg.sender, scaledAmount);
 
         uint256 reserveIndex = reserve.id;
         usersConfig[msg.sender].setUsingAsCollateral(reserveIndex, true);
+
+        _updateInterestRates(asset);
     }
 
     /**
@@ -294,10 +372,15 @@ contract LendingPool is Initializable, ILendingPool {
         reserve.updateState();
 
         (, , uint256 hf) = calculateUserAccountData(msg.sender);
-
         require(hf > 1e18, "WITHDRAW_BREAKS_HEALTH_FACTOR");
+
+        require(amount <= reserve.availableLiquidity, "INSUFFICIENT_LIQUIDITY");
+
         uint256 scaledAmount = amount.rayDiv(reserve.liquidityIndex);
         IAToken(reserve.aTokenAddress).burn(msg.sender, scaledAmount);
+
+        reserve.totalLiquidity -= amount;
+        reserve.availableLiquidity -= amount;
 
         uint256 reserveIndex = reserve.id;
         uint256 remainingBalance = IAToken(reserve.aTokenAddress).balanceOf(
@@ -308,6 +391,7 @@ contract LendingPool is Initializable, ILendingPool {
         }
 
         IERC20(asset).transfer(msg.sender, amount);
+        _updateInterestRates(asset);
     }
 
     /**
@@ -332,16 +416,23 @@ contract LendingPool is Initializable, ILendingPool {
 
         require(projectedHf > 1e18, "INSUFFICIENT_COLLATERAL");
 
+        require(amount <= reserve.availableLiquidity, "INSUFFICIENT_LIQUIDITY");
+
         uint256 scaledDebt = amount.rayDiv(reserve.variableBorrowIndex);
         IVariableDebtToken(reserve.variableDebtTokenAddress).mint(
             msg.sender,
             scaledDebt
         );
 
+        reserve.totalBorrows += amount;
+        reserve.availableLiquidity -= amount;
+
         uint256 reserveIndex = reserve.id;
         usersConfig[msg.sender].setBorrowing(reserveIndex, true);
 
         IERC20(asset).transfer(msg.sender, amount);
+
+        _updateInterestRates(asset);
     }
 
     function repay(address asset, uint256 amount) external {
@@ -359,6 +450,9 @@ contract LendingPool is Initializable, ILendingPool {
             scaledDebt
         );
 
+        reserve.totalBorrows -= amount;
+        reserve.availableLiquidity += amount;
+
         uint256 reserveIndex = reserve.id;
         uint256 remainingDebt = IVariableDebtToken(
             reserve.variableDebtTokenAddress
@@ -367,5 +461,6 @@ contract LendingPool is Initializable, ILendingPool {
         if (remainingDebt == 0) {
             usersConfig[msg.sender].setBorrowing(reserveIndex, false);
         }
+        _updateInterestRates(asset);
     }
 }

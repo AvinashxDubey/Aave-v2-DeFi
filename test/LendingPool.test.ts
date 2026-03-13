@@ -23,10 +23,14 @@ describe("LendingPool Initialization", function () {
     const collateralDebtToken = await VariableDebtToken.deploy();
     const debtAssetDebtToken = await VariableDebtToken.deploy();
 
+    const reserveInterestRateStrategy = await hre.ethers.getContractFactory("DefaultReserveInterestRateStrategy");
+    const interestStrategy = await reserveInterestRateStrategy.deploy();
+
     await lendingPool.initialize(
       [collateralToken.target, debtAssetToken.target],
       [collateralAToken.target, debtAssetAToken.target],
-      [collateralDebtToken.target, debtAssetDebtToken.target]
+      [collateralDebtToken.target, debtAssetDebtToken.target],
+      interestStrategy
     );
 
     await collateralAToken.initialize(

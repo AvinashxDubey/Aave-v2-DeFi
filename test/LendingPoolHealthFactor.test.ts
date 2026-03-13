@@ -35,10 +35,14 @@ describe("LendingPool Health Factor Tests", function () {
         const LendingPool = await ethers.getContractFactory("LendingPool")
         lendingPool = await LendingPool.deploy()
 
+        const ReserveInterestRateStrategy = await ethers.getContractFactory("DefaultReserveInterestRateStrategy")
+        const interestStrategy = await ReserveInterestRateStrategy.deploy()
+
         await lendingPool.initialize(
             [collateralToken.target, debtAssetToken.target],
             [collateralAToken.target, debtAssetAToken.target],
-            [collateralDebtToken.target, borrowDebtToken.target]
+            [collateralDebtToken.target, borrowDebtToken.target],
+            interestStrategy
         )
 
         await collateralAToken.initialize(
@@ -70,8 +74,12 @@ describe("LendingPool Health Factor Tests", function () {
         )
 
         await collateralToken.mint(user.address, ethers.parseEther("3000"))
-        await debtAssetToken.mint(lendingPool.target, ethers.parseEther("3000"))
+        await debtAssetToken.mint(owner.address, ethers.parseEther("4000"))
         await debtAssetToken.mint(liquidator.address, ethers.parseEther("1000"))
+
+        // Seed pool with borrow asset liquidity via deposit
+        await debtAssetToken.connect(owner).approve(lendingPool.target, ethers.parseEther("3000"))
+        await lendingPool.connect(owner).deposit(debtAssetToken.target, ethers.parseEther("3000"))
 
         await collateralToken.connect(user).approve(
             lendingPool.target,

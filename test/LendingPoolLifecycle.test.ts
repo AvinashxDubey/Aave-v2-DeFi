@@ -23,10 +23,14 @@ describe("LendingPool Lifecycle", function () {
     const collateralDebtToken = await VariableDebtToken.deploy();
     const borrowDebtToken = await VariableDebtToken.deploy();
 
+    const reserveInterestRateStrategy = await hre.ethers.getContractFactory("DefaultReserveInterestRateStrategy");
+    const interestStrategy = await reserveInterestRateStrategy.deploy();
+
     await lendingPool.initialize(
       [collateralToken.target, debtAssetToken.target],
       [collateralAToken.target, debtAssetAToken.target],
-      [collateralDebtToken.target, borrowDebtToken.target]
+      [collateralDebtToken.target, borrowDebtToken.target],
+      interestStrategy
     );
 
     await collateralAToken.initialize(
@@ -57,12 +61,14 @@ describe("LendingPool Lifecycle", function () {
       "vdMUSDC"
     );
 
+
     const collateralMintAmount = hre.ethers.parseUnits("1000", 18);
     await collateralToken.mint(user1.address, collateralMintAmount);
 
-    // Seed borrow-asset liquidity so users can borrow USDC against WETH collateral.
-    const debtAssetLiquidity = hre.ethers.parseUnits("1000", 18);
-    await debtAssetToken.mint(lendingPool.target, debtAssetLiquidity);
+    // Seed borrow-asset liquidity via deposit
+    await debtAssetToken.mint(deployer.address, hre.ethers.parseUnits("1000", 18));
+    await debtAssetToken.connect(deployer).approve(lendingPool.target, hre.ethers.parseUnits("1000", 18));
+    await lendingPool.connect(deployer).deposit(debtAssetToken.target, hre.ethers.parseUnits("1000", 18));
 
     return {
       deployer,
