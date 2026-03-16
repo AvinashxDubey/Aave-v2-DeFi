@@ -1,0 +1,10 @@
+{
+  "LendingPoolModule#UsdcToken": "0xa23bF6DeCD89Fe1413e2951c79Fd412A1aC0aB32",
+  "LendingPoolModule#WethToken": "0x6146c7a94d5939b2bEC06B648565aD668c801938",
+  "LendingPoolModule#LendingPool": "0x70C391db781623a17b2754a018bAa1B11726A4A9",
+  "LendingPoolModule#AUsdcImpl": "0x7841Ecc9b86014943B36496489895589B3d5Ecb4",
+  "LendingPoolModule#AWethImpl": "0xe121cf99C1DDD39B73bbf4D9d45efF4e7502cDD1",
+  "LendingPoolModule#DebtUsdcImpl": "0x213AE51372c21CFc6d4D8A858A42a6519Aeb9CFa",
+  "LendingPoolModule#DebtWethImpl": "0x3BABA89c15C0B9267beF86aC46f83189CD89357D",
+  "LendingPoolModule#InterestRateStrategy": "0xfB4cb089Ab41A440AfA3cBe5D46acD4164f32888"
+}
